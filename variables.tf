@@ -291,21 +291,21 @@ variable "default_security_group_tags" {
 }
 
 variable "enable_flow_log" {
-  type = bool
+  type        = bool
   description = "(optional) Enable Flow lgos. Default: true"
-  default = true
+  default     = true
 }
 
 variable "create_flow_log_cloudwatch_log_group" {
-  type = bool
+  type        = bool
   description = "(optional) Create Flow Log CloudWatch Log Group. Default: true"
-  default = true
+  default     = true
 }
 
 variable "create_flow_log_cloudwatch_iam_role" {
-  type = bool
+  type        = bool
   description = "(optional) Create Flow Log CloudWatch IAM Role. Default: true"
-  default = true
+  default     = true
 }
 
 # variable "create_flow_log_cloudwatch_iam_role" {
@@ -491,14 +491,91 @@ variable "manage_default_network_acl" {
   default     = false
 }
 
-variable "default_network_acl_name" {
-  description = "(optional) Default network ACL name. Default: null"
+
+
+
+## Add Database compatibility variables to keep it compatible with the existing module.
+variable "database_subnets" {
+  description = "A list of database subnets inside the VPC"
+  type        = list(string)
+  default     = []
+}
+
+variable "database_subnet_assign_ipv6_address_on_creation" {
+  description = "Assign IPv6 address on database subnet, must be disabled to change IPv6 CIDRs. This is the IPv6 equivalent of map_public_ip_on_launch"
+  type        = bool
+  default     = null
+}
+
+variable "database_subnet_ipv6_prefixes" {
+  description = "Assigns IPv6 database subnet id based on the Amazon provided /56 prefix base 10 integer (0-256). Must be of equal length to the corresponding IPv4 subnet list"
+  type        = list(string)
+  default     = []
+}
+
+variable "database_subnet_names" {
+  description = "Explicit values to use in the Name tag on database subnets. If empty, Name tags are generated."
+  type        = list(string)
+  default     = []
+}
+
+variable "database_subnet_suffix" {
+  description = "Suffix to append to database subnets name"
+  type        = string
+  default     = "database"
+}
+
+variable "database_subnet_tags" {
+  description = "Additional tags for the database subnets"
+  type        = map(string)
+  default     = {}
+}
+variable "create_database_subnet_group" {
+  description = "Controls if database subnet group should be created (n.b. database_subnets must also be set)"
+  type        = bool
+  default     = true
+}
+variable "database_subnet_group_tags" {
+  description = "Additional tags for the database subnet group"
+  type        = map(string)
+  default     = {}
+}
+variable "database_subnet_group_name" {
+  description = "Name to be used on the database subnet group"
   type        = string
   default     = null
 }
 
-variable "default_network_acl_tags" {
-  description = "(optional) Default Network ACL tags. Default: {}"
+variable "database_route_table_tags" {
+  description = "Additional tags for the database route tables"
   type        = map(string)
   default     = {}
+}
+variable "create_database_subnet_route_table" {
+  description = "Controls if separate route table for database should be created"
+  type        = bool
+  default     = false
+}
+
+variable "create_database_internet_gateway_route" {
+  description = "Controls if an internet gateway route for public database access should be created"
+  type        = bool
+  default     = false
+}
+
+variable "create_database_nat_gateway_route" {
+  description = "Controls if a nat gateway route should be created to give internet access to the database subnets"
+  type        = bool
+  default     = false
+}
+
+variable "create_egress_only_igw" {
+  description = "Controls if an Egress Only Internet Gateway is created and its related routes."
+  type        = bool
+  default     = true
+}
+variable "database_dedicated_network_acl" {
+  description = "Whether to use dedicated network ACL (not default) and custom rules for database subnets"
+  type        = bool
+  default     = false
 }

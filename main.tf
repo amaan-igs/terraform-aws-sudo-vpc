@@ -7,24 +7,25 @@ locals {
     length(local.public_subnets),
     length(local.private_subnets),
   )
-  nat_gateway_count = local.single_nat_gateway ? 1 : var.one_nat_gateway_per_az ? length(local.public_subnets) : local.max_subnet_length
+  nat_gateway_count  = local.single_nat_gateway ? 1 : var.one_nat_gateway_per_az ? length(local.public_subnets) : local.max_subnet_length
   single_nat_gateway = var.one_nat_gateway_per_az ? false : var.single_nat_gateway
   # Use `local.vpc_id` to give a hint to Terraform that subnets should be deleted before secondary CIDR blocks can be free!
-  vpc_id = try(aws_vpc_ipv4_cidr_block_association.this[0].vpc_id, aws_vpc.this[0].id, "")
-  name = var.name == "sudo-vpc" ? "sudo-vpc-${random_string.random.result}" : var.name
+  vpc_id                      = try(aws_vpc_ipv4_cidr_block_association.this[0].vpc_id, aws_vpc.this[0].id, "")
+  name                        = var.name == "sudo-vpc" ? "sudo-vpc-${random_string.random.result}" : var.name
   default_security_group_name = coalesce(var.default_security_group_name, "${local.name}-default-security-group")
-  cidr = var.cidr == "0.0.0.0/0" ? "172.31.0.0/16" : var.cidr
-  create_vpc = var.create_vpc
-  cidr_prefix_match = regexall("/([0-9]{2})", local.cidr)
-  cidr_prefix = length(local.cidr_prefix_match) > 0 ? tonumber(local.cidr_prefix_match[0][0]) : 16
-  validate_cidr_prefix = local.max_subnet_length == 0 && var.cidr != "0.0.0.0/0" && local.cidr_prefix > 20 ? tobool("Please provide subnet addressing for VPC greater than /20 prefix") : true
+  cidr                        = var.cidr == "0.0.0.0/0" ? "172.31.0.0/16" : var.cidr
+  create_vpc                  = var.create_vpc
+  cidr_prefix_match           = regexall("/([0-9]{2})", local.cidr)
+  #cidr_prefix                 = length(local.cidr_prefix_match) > 0 ? tonumber(local.cidr_prefix_match[0][0]) : 16
+  #validate_cidr_prefix        = local.max_subnet_length == 0 && var.cidr != "0.0.0.0/0" && local.cidr_prefix > 20 ? tobool("Please provide subnet addressing for VPC greater than /20 prefix") : true
 
-  azs = length(var.azs) > 0 ? var.azs : slice(data.aws_availability_zones.azs.zone_ids,0,length(local.public_subnets))
+  azs     = length(var.azs) > 0 ? var.azs : slice(data.aws_availability_zones.azs.zone_ids, 0, length(local.public_subnets))
   subnets = [for cidr_block in cidrsubnets(local.cidr, 4, 4, 4, 4) : cidrsubnets(cidr_block, 4, 4, 4)]
 
   # Create private subnets without NAT in default mode.
-  public_subnets = local.max_subnet_length > 0 && var.cidr != "0.0.0.0/0" ? var .public_subnets : local.subnets[0]
-  private_subnets = local.max_subnet_length > 0 && var.cidr != "0.0.0.0/0" ? var .private_subnets : local.subnets[1]
+  public_subnets   = local.max_subnet_length > 0 && var.cidr != "0.0.0.0/0" ? var.public_subnets : local.subnets[0]
+  private_subnets  = local.max_subnet_length > 0 && var.cidr != "0.0.0.0/0" ? var.private_subnets : local.subnets[1]
+  database_subnets = local.max_subnet_length > 0 && var.cidr != "0.0.0.0/0" ? var.database_subnets : local.subnets[2]
 
   enable_flow_log = local.create_vpc && var.enable_flow_log
 
@@ -65,9 +66,9 @@ resource "aws_vpc" "this" {
   ipv6_ipam_pool_id                = var.ipv6_ipam_pool_id
   ipv6_netmask_length              = var.ipv6_netmask_length
 
-  instance_tenancy               = var.instance_tenancy
-  enable_dns_hostnames           = var.enable_dns_hostnames
-  enable_dns_support             = var.enable_dns_support
+  instance_tenancy     = var.instance_tenancy
+  enable_dns_hostnames = var.enable_dns_hostnames
+  enable_dns_support   = var.enable_dns_support
 
   tags = merge(
     { "Name" = var.name },
@@ -152,6 +153,19 @@ resource "aws_internet_gateway" "this" {
   )
 }
 
+resource "aws_egress_only_internet_gateway" "this" {
+  count = var.create_vpc && var.create_egress_only_igw && var.enable_ipv6 && local.max_subnet_length > 0 ? 1 : 0
+
+  vpc_id = local.vpc_id
+
+  tags = merge(
+    {
+      "Name" = format("%s", var.name)
+    },
+    var.tags,
+    var.igw_tags,
+  )
+}
 ################################################################################
 # EIP
 ################################################################################
@@ -426,5 +440,132 @@ resource "aws_default_vpc" "this" {
     { "Name" = coalesce(var.default_vpc_name, "default") },
     var.tags,
     var.default_vpc_tags,
+  )
+}
+
+
+################################################################################
+# Database Subnets
+################################################################################
+
+locals {
+  create_database_subnets = local.create_vpc && length(local.database_subnets) > 0 ? true : false
+  #create_database_route_table = local.create_database_subnets && var.create_database_subnet_route_table
+}
+
+resource "aws_subnet" "database" {
+  count = local.create_database_subnets ? length(local.database_subnets) : 0
+
+  vpc_id                          = local.vpc_id
+  cidr_block                      = local.database_subnets[count.index]
+  availability_zone               = length(regexall("^[a-z]{2}-", element(local.azs, count.index))) > 0 ? element(local.azs, count.index) : null
+  availability_zone_id            = length(regexall("^[a-z]{2}-", element(local.azs, count.index))) == 0 ? element(local.azs, count.index) : null
+  assign_ipv6_address_on_creation = var.database_subnet_assign_ipv6_address_on_creation == null ? var.assign_ipv6_address_on_creation : var.database_subnet_assign_ipv6_address_on_creation
+
+  ipv6_cidr_block = var.enable_ipv6 && length(var.database_subnet_ipv6_prefixes) > 0 ? cidrsubnet(aws_vpc.this[0].ipv6_cidr_block, 8, var.database_subnet_ipv6_prefixes[count.index]) : null
+
+  tags = merge(
+    {
+      Name = try(
+        var.database_subnet_names[count.index],
+        format("${var.name}-${var.database_subnet_suffix}-%s", element(local.azs, count.index), )
+      )
+    },
+    var.tags,
+    var.database_subnet_tags,
+  )
+
+}
+
+resource "aws_db_subnet_group" "database" {
+  count = local.create_database_subnets && var.create_database_subnet_group ? 1 : 0
+
+  name        = lower(coalesce(var.database_subnet_group_name, var.name))
+  description = "Database subnet group for ${var.name}"
+  subnet_ids  = aws_subnet.database[*].id
+
+  tags = merge(
+    {
+      "Name" = lower(coalesce(var.database_subnet_group_name, var.name))
+    },
+    var.tags,
+    var.database_subnet_group_tags,
+  )
+}
+
+################################################################################
+# Database routes
+################################################################################
+
+resource "aws_route_table" "database" {
+  count = var.create_vpc && var.create_database_subnet_route_table && length(var.database_subnets) > 0 ? var.single_nat_gateway || var.create_database_internet_gateway_route ? 1 : length(var.database_subnets) : 0
+
+  vpc_id = local.vpc_id
+
+  tags = merge(
+    {
+      "Name" = var.single_nat_gateway || var.create_database_internet_gateway_route ? "${var.name}-${var.database_subnet_suffix}" : format(
+        "%s-${var.database_subnet_suffix}-%s",
+        var.name,
+        element(var.azs, count.index),
+      )
+    },
+    var.tags,
+    var.database_route_table_tags,
+  )
+}
+
+resource "aws_route" "database_internet_gateway" {
+  count = var.create_vpc && var.create_igw && var.create_database_subnet_route_table && length(var.database_subnets) > 0 && var.create_database_internet_gateway_route && false == var.create_database_nat_gateway_route ? 1 : 0
+
+  route_table_id         = aws_route_table.database[0].id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.this[0].id
+
+  timeouts {
+    create = "5m"
+  }
+}
+
+resource "aws_route" "database_nat_gateway" {
+  count = var.create_vpc && var.create_database_subnet_route_table && length(var.database_subnets) > 0 && false == var.create_database_internet_gateway_route && var.create_database_nat_gateway_route && var.enable_nat_gateway ? var.single_nat_gateway ? 1 : length(var.database_subnets) : 0
+
+  route_table_id         = element(aws_route_table.database.*.id, count.index)
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = element(aws_nat_gateway.this.*.id, count.index)
+
+  timeouts {
+    create = "5m"
+  }
+}
+
+resource "aws_route" "database_ipv6_egress" {
+  count = var.create_vpc && var.create_egress_only_igw && var.enable_ipv6 && var.create_database_subnet_route_table && length(var.database_subnets) > 0 && var.create_database_internet_gateway_route ? 1 : 0
+
+  route_table_id              = aws_route_table.database[0].id
+  destination_ipv6_cidr_block = "::/0"
+  egress_only_gateway_id      = aws_egress_only_internet_gateway.this[0].id
+
+  timeouts {
+    create = "5m"
+  }
+}
+################################################################################
+# Database Network ACLs
+################################################################################
+
+locals {
+  create_database_network_acl = local.create_database_subnets && var.database_dedicated_network_acl
+}
+
+resource "aws_network_acl" "database" {
+  count = local.create_database_network_acl ? 1 : 0
+
+  vpc_id     = local.vpc_id
+  subnet_ids = aws_subnet.database[*].id
+
+  tags = merge(
+    { "Name" = "${var.name}-${var.database_subnet_suffix}" },
+    var.tags
   )
 }

@@ -134,3 +134,13 @@ output "private_route_table_ids" {
   description = "Private route tables IDs"
   value       = aws_route_table.private[*].id
 }
+
+output "database_subnet_group" {
+  description = "ID of database subnet group"
+  value       = concat(aws_db_subnet_group.database.*.id, [""])[0]
+}
+
+output "database_subnet_group_name" {
+  description = "Name of database subnet group"
+  value       = concat(aws_db_subnet_group.database.*.name, [""])[0]
+}
