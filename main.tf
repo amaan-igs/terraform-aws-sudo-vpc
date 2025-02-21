@@ -173,7 +173,7 @@ resource "aws_egress_only_internet_gateway" "this" {
 resource "aws_eip" "nat" {
   count = local.create_vpc && var.enable_nat_gateway && false == var.reuse_nat_ips ? local.nat_gateway_count : 0
 
-  vpc = true
+  domain = true
 
   tags = merge(
     {
